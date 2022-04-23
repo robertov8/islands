@@ -1,5 +1,5 @@
 defmodule IslandsEngine.Rules do
-  alias __MODULE__
+  alias IslandsEngine.Rules
 
   defstruct state: :initialized,
             player1: :islands_not_set,
@@ -24,6 +24,10 @@ defmodule IslandsEngine.Rules do
       true -> {:ok, %Rules{rules | state: :player1_turn}}
       false -> {:ok, rules}
     end
+  end
+
+  def check(%Rules{state: :player1_turn} = rules, {:guess_coordinate, :player1}) do
+    {:ok, %Rules{rules | state: :player2_turn}}
   end
 
   def check(_state, _action), do: :error
