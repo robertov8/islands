@@ -3,11 +3,13 @@ defmodule IslandsEngine.Game do
 
   alias IslandsEngine.{Board, Coordinate, Guesses, Island, Rules}
 
+  @timeout 60 * 60 * 24 * 1000
   @players [:player1, :player2]
 
   ########
   # Client
   ########
+
   def start_link(name) when is_binary(name) do
     GenServer.start_link(__MODULE__, name, name: via_tuple(name))
   end
@@ -38,9 +40,14 @@ defmodule IslandsEngine.Game do
   # Callbacks
   ############
   def init(name) do
+    send(self(), {:set_state, name})
+    {:ok, fresh_state(name)}
+  end
+
+  defp fresh_state(name) do
     player1 = %{name: name, board: Board.new(), guesses: Guesses.new()}
     player2 = %{name: nil, board: Board.new(), guesses: Guesses.new()}
-    {:ok, %{player1: player1, player2: player2, rules: Rules.new()}}
+    %{player1: player1, player2: player2, rules: Rules.new()}
   end
 
   def handle_call({:add_player, name}, _from, state) do
@@ -121,15 +128,38 @@ defmodule IslandsEngine.Game do
     end
   end
 
+  def handle_cast({:demo_cast, new_value}, state) do
+    {:noreply, Map.put(state, :test, new_value)}
+  end
+
   def handle_info(:first, state) do
     IO.puts("This message has been handled by handle_info/2, matching on :first.")
 
     {:noreply, state}
   end
 
-  def handle_cast({:demo_cast, new_value}, state) do
-    {:noreply, Map.put(state, :test, new_value)}
+  def handle_info(:timeout, state) do
+    {:stop, {:shutdown, :timeout}, state}
   end
+
+  def handle_info({:set_state, name}, _state) do
+    state =
+      case :ets.lookup(:game_state, name) do
+        [] -> fresh_state(name)
+        [{_key, state}] -> state
+      end
+
+    :ets.insert(:game_state, {name, state})
+    {:noreply, state, @timeout}
+  end
+
+  def terminate({:shutdown, :timeout}, state) do
+    :ets.delete(:game_state, state.player1.name)
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   defp update_player2_name(state, name), do: put_in(state.player2.name, name)
 
@@ -141,7 +171,10 @@ defmodule IslandsEngine.Game do
     end)
   end
 
-  defp replay_success(state, replay), do: {:reply, replay, state}
+  defp replay_success(state, replay) do
+    :ets.insert(:game_state, {state.player1.name, state})
+    {:reply, replay, state, @timeout}
+  end
 
   defp player_board(state, player), do: Map.get(state, player).board
 
